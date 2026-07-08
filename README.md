@@ -1,6 +1,6 @@
 # Exchange Simulator
 
-High-performance simulated exchange with a C++ matching engine and ML trading agents.
+High-performance simulated exchange with a C++ matching engine, ML trading agents, and live visualization.
 
 ## Performance
 
@@ -17,29 +17,42 @@ All operations well under the 1μs target.
 
 ## Architecture
 
-- **C++ Matching Engine** — Price-time priority order book, limit/market orders, zero-allocation memory pool
-- **ML Agents** (coming) — Classical strategies → gradient-boosted models → deep RL via self-play
-- **Market Data** (coming) — Synthetic (Hawkes process) + real data replay (Lobster/Databento)
-- **Dashboard** (coming) — Live latency histograms, book visualization, agent PnL
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  Dashboard (React)          │  RL Training (Gymnasium + PPO)    │
+├─────────────────────────────┼───────────────────────────────────┤
+│  Python Bindings (pybind11)                                     │
+├─────────────────────────────────────────────────────────────────┤
+│  Agent Framework            │  Data Generation (Hawkes/Replay)  │
+├─────────────────────────────┴───────────────────────────────────┤
+│  C++ Matching Engine (price-time priority, zero-alloc hot path) │
+└─────────────────────────────────────────────────────────────────┘
+```
 
-## Build
+- **C++ Matching Engine** — Price-time priority order book with IOC/FOK/iceberg/stop/pegged orders, opening/closing auctions, zero-allocation memory pool
+- **Python Bindings** — pybind11 wrapper exposing the full engine API to Python
+- **Agent Framework** — BaseAgent interface, RandomAgent, Avellaneda-Stoikov MarketMaker
+- **RL Environment** — Gymnasium-compliant env for training trading agents with PPO/SAC
+- **Synthetic Data** — Hawkes process order flow with pre-built scenarios (calm, volatile, flash crash)
+- **Live Dashboard** — WebSocket server + React frontend with price chart, order book, trade feed, agent PnL
+
+## Quick Start
 
 ```bash
+# Build C++ engine + Python bindings
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-```
 
-## Test
-
-```bash
+# Run all C++ tests (66 tests)
 ctest --test-dir build --output-on-failure
-```
 
-## Benchmark
+# Run Python tests
+PYTHONPATH=build/bindings:. python3 -m pytest tests/ -v
 
-```bash
-./build/engine/bench/bench_order_book
-./build/engine/bench/bench_matching
+# Run the dashboard
+pip install websockets
+PYTHONPATH=build/bindings:. python3 dashboard/server/app.py &
+cd dashboard/frontend && npm install && npm run dev
 ```
 
 ## Project Structure
@@ -48,28 +61,87 @@ ctest --test-dir build --output-on-failure
 exchange-simulator/
 ├── engine/
 │   ├── src/
-│   │   ├── types.hpp              # Core types: Order, Fill, Side, Price
-│   │   ├── memory_pool.hpp        # Fixed-size pool allocator (zero heap alloc)
-│   │   ├── order_book.hpp/cpp     # L2/L3 order book, price-time priority
-│   │   └── matching_engine.hpp/cpp # Order execution engine
-│   ├── tests/                     # Google Test suite (26 tests)
+│   │   ├── types.hpp              # Order, Fill, Side, Price, TimeInForce
+│   │   ├── memory_pool.hpp        # Fixed-size pool allocator
+│   │   ├── order_book.hpp/cpp     # L2/L3 book, price-time priority
+│   │   ├── matching_engine.hpp/cpp # Execution engine + auction phases
+│   │   └── auction.hpp/cpp        # Opening/closing uncross
+│   ├── tests/                     # Google Test suite (66 tests)
 │   └── bench/                     # Google Benchmark suite
-└── CMakeLists.txt
+├── bindings/                      # pybind11 Python wrapper
+├── agents/
+│   ├── base.py                    # BaseAgent interface
+│   ├── random_agent.py            # Noise trader
+│   └── market_maker.py            # Avellaneda-Stoikov MM
+├── rl/
+│   ├── trading_env.py             # Gymnasium environment
+│   └── train_ppo.py               # PPO training script
+├── data/
+│   ├── hawkes.py                  # Hawkes process generator
+│   ├── replay.py                  # Lobster L3 replay
+│   └── scenarios.py               # Pre-built market scenarios
+├── simulation/
+│   └── loop.py                    # Multi-agent simulation driver
+├── dashboard/
+│   ├── server/app.py              # WebSocket server (100 steps/sec)
+│   └── frontend/                  # React + Canvas visualization
+└── tests/                         # Python test suite
 ```
+
+## Order Types
+
+| Type | Description |
+|------|-------------|
+| Limit (GTC) | Rests on book until filled or cancelled |
+| Limit (IOC) | Fill immediately, cancel remainder |
+| Limit (FOK) | Fill entire quantity or reject |
+| Market | Execute at best available price |
+| Iceberg | Shows only visible_quantity, auto-refills |
+| Stop | Activates as market order when price crosses trigger |
+| StopLimit | Activates as limit order at trigger price |
+| Pegged | Tracks best bid/ask with configurable offset |
+
+## Agents
+
+| Agent | Strategy |
+|-------|----------|
+| RandomAgent | Uniform random orders around mid (noise) |
+| MarketMakerAgent | Avellaneda-Stoikov optimal quoting with inventory skew |
+| RL Agent | PPO-trained via Gymnasium environment |
+
+## Benchmarks
+
+```bash
+./build/engine/bench/bench_order_book
+./build/engine/bench/bench_matching
+```
+
+## RL Training
+
+```bash
+pip install ".[rl]"
+PYTHONPATH=build/bindings:. python3 rl/train_ppo.py --timesteps 100000
+```
+
+Models save to `models/ppo_trader.zip`. TensorBoard logs to `logs/`.
 
 ## Status
 
 - [x] Core types and memory pool
 - [x] Order book (price-time priority)
-- [x] Matching engine (limit + market orders)
-- [x] Benchmark suite
-- [ ] IOC/FOK/Iceberg/Stop/Pegged orders
-- [ ] Auction phases (opening/closing)
-- [ ] Python bindings (pybind11)
-- [ ] Agent framework (classical + ML + RL)
-- [ ] Synthetic data generator (Hawkes process)
+- [x] Matching engine (limit + market)
+- [x] IOC/FOK/Iceberg/Stop/Pegged orders
+- [x] Auction phases (opening/closing uncross)
+- [x] Python bindings (pybind11)
+- [x] Agent framework (classical strategies)
+- [x] Avellaneda-Stoikov market maker
+- [x] Gymnasium RL environment
+- [x] Synthetic data generator (Hawkes process)
+- [x] Live dashboard (WebSocket + React)
+- [ ] Deep RL self-play training
 - [ ] Real data replay (Lobster/Databento)
-- [ ] Performance dashboard (WebSocket + React)
+- [ ] Latency histogram dashboard panel
+- [ ] Multi-asset support
 
 ## License
 
