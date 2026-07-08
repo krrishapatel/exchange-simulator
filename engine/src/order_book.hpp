@@ -34,6 +34,8 @@ public:
 
     [[nodiscard]] const PriceLevel* best_bid() const noexcept;
     [[nodiscard]] const PriceLevel* best_ask() const noexcept;
+    [[nodiscard]] PriceLevel* best_bid() noexcept;
+    [[nodiscard]] PriceLevel* best_ask() noexcept;
     [[nodiscard]] Price spread() const noexcept;
     [[nodiscard]] size_t bid_depth() const noexcept;
     [[nodiscard]] size_t ask_depth() const noexcept;

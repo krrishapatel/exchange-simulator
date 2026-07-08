@@ -1,5 +1,8 @@
 # engine/CMakeLists.txt
-add_library(engine src/order_book.cpp)
+add_library(engine
+    src/order_book.cpp
+    src/matching_engine.cpp
+)
 target_include_directories(engine PUBLIC src)
 set_target_properties(engine PROPERTIES CXX_STANDARD 20)
 

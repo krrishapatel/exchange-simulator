@@ -61,6 +61,16 @@ const PriceLevel* OrderBook::best_ask() const noexcept {
     return &asks_.begin()->second;
 }
 
+PriceLevel* OrderBook::best_bid() noexcept {
+    if (bids_.empty()) return nullptr;
+    return &bids_.begin()->second;
+}
+
+PriceLevel* OrderBook::best_ask() noexcept {
+    if (asks_.empty()) return nullptr;
+    return &asks_.begin()->second;
+}
+
 Price OrderBook::spread() const noexcept {
     auto* bid = best_bid();
     auto* ask = best_ask();
