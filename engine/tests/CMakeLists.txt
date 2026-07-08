@@ -8,6 +8,7 @@ add_executable(engine_tests
     test_iceberg.cpp
     test_stop_orders.cpp
     test_pegged.cpp
+    test_auction.cpp
 )
 target_link_libraries(engine_tests PRIVATE engine GTest::gtest_main)
 include(GoogleTest)

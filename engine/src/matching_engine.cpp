@@ -1,11 +1,19 @@
 // engine/src/matching_engine.cpp
 #include "matching_engine.hpp"
 #include <algorithm>
+#include <set>
+#include <cmath>
 
 namespace exsim {
 
 std::vector<Fill> MatchingEngine::submit(Order& order) {
     current_ts_ = order.timestamp;
+
+    // In PreOpen phase, accept orders without matching
+    if (phase_ == Phase::PreOpen) {
+        add_to_book_no_match(order);
+        return {};
+    }
 
     switch (order.type) {
         case OrderType::Limit: {
@@ -349,6 +357,135 @@ void MatchingEngine::check_stop_triggers(Price last_trade_price, std::vector<Fil
             }
         }
     }
+}
+
+void MatchingEngine::add_to_book_no_match(Order& order) {
+    // In PreOpen, just add to book directly — no matching even if crossing
+    // Stop orders are still stored separately (they need trigger logic)
+    if (order.type == OrderType::Stop || order.type == OrderType::StopLimit) {
+        stop_orders_.push_back(order);
+        return;
+    }
+    // Market orders in PreOpen are rejected (no price reference)
+    if (order.type == OrderType::Market) {
+        return;
+    }
+    // Limit (and iceberg/pegged treated as limit) orders go directly on the book
+    if (order.is_iceberg()) {
+        add_iceberg_to_book(order);
+    } else {
+        book_.add(order);
+    }
+}
+
+std::vector<Fill> MatchingEngine::uncross() {
+    std::vector<Fill> fills;
+
+    // Collect all candidate prices from both sides of the book
+    std::set<Price> candidate_prices;
+    for (auto it = book_.bids_begin(); it != book_.bids_end(); ++it) {
+        candidate_prices.insert(it->first);
+    }
+    for (auto it = book_.asks_begin(); it != book_.asks_end(); ++it) {
+        candidate_prices.insert(it->first);
+    }
+
+    if (candidate_prices.empty()) {
+        phase_ = Phase::Continuous;
+        return fills;
+    }
+
+    // For each candidate price, calculate executable volume
+    Price best_price = 0;
+    Quantity max_volume = 0;
+    Quantity min_imbalance = UINT32_MAX;
+
+    for (Price p : candidate_prices) {
+        // Buy volume at P = sum of all buy orders with price >= P
+        Quantity buy_vol = 0;
+        for (auto it = book_.bids_begin(); it != book_.bids_end(); ++it) {
+            if (it->first >= p) {
+                buy_vol += it->second.total_quantity;
+            } else {
+                break; // bids are sorted high to low
+            }
+        }
+
+        // Sell volume at P = sum of all sell orders with price <= P
+        Quantity sell_vol = 0;
+        for (auto it = book_.asks_begin(); it != book_.asks_end(); ++it) {
+            if (it->first <= p) {
+                sell_vol += it->second.total_quantity;
+            } else {
+                break; // asks are sorted low to high
+            }
+        }
+
+        Quantity exec_vol = std::min(buy_vol, sell_vol);
+        Quantity imbalance = (buy_vol > sell_vol) ? (buy_vol - sell_vol) : (sell_vol - buy_vol);
+
+        if (exec_vol > max_volume ||
+            (exec_vol == max_volume && imbalance < min_imbalance)) {
+            max_volume = exec_vol;
+            min_imbalance = imbalance;
+            best_price = p;
+        }
+    }
+
+    if (max_volume == 0) {
+        phase_ = Phase::Continuous;
+        return fills;
+    }
+
+    // Execute all crossing orders at the equilibrium price
+    // Match buy orders (highest first) against sell orders (lowest first) at best_price
+    Quantity remaining_volume = max_volume;
+
+    while (remaining_volume > 0) {
+        auto* best_bid = book_.best_bid();
+        auto* best_ask = book_.best_ask();
+        if (!best_bid || !best_ask) break;
+        if (best_bid->price < best_price || best_ask->price > best_price) break;
+
+        // Get orders at these levels
+        if (best_bid->orders.empty() || best_ask->orders.empty()) break;
+
+        auto& buy_node = best_bid->orders.front();
+        auto& sell_node = best_ask->orders.front();
+        Order& buyer = buy_node.order;
+        Order& seller = sell_node.order;
+
+        Quantity fill_qty = std::min({buyer.remaining(), seller.remaining(), remaining_volume});
+
+        Fill fill{};
+        fill.maker_order_id = buyer.id;   // In auction, both are "makers"
+        fill.taker_order_id = seller.id;
+        fill.price = best_price;
+        fill.quantity = fill_qty;
+        fill.aggressor_side = Side::Buy;  // Convention for auction
+        fill.timestamp = current_ts_;
+        fills.push_back(fill);
+
+        remaining_volume -= fill_qty;
+        buyer.filled_quantity += fill_qty;
+        seller.filled_quantity += fill_qty;
+        best_bid->total_quantity -= fill_qty;
+        best_ask->total_quantity -= fill_qty;
+
+        if (buyer.is_filled()) {
+            book_.cancel(buyer.id);
+        }
+        if (seller.is_filled()) {
+            book_.cancel(seller.id);
+        }
+    }
+
+    if (!fills.empty()) {
+        last_trade_price_ = best_price;
+    }
+
+    phase_ = Phase::Continuous;
+    return fills;
 }
 
 } // namespace exsim

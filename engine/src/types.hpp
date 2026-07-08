@@ -63,6 +63,11 @@ struct Fill {
     Timestamp timestamp;
 };
 
+enum class Phase : uint8_t {
+    PreOpen = 0,     // Orders accepted but no matching (auction collection)
+    Continuous = 1,  // Normal matching (current default behavior)
+};
+
 enum class CancelResult : uint8_t {
     Success = 0,
     OrderNotFound = 1,

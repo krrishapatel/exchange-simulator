@@ -14,6 +14,13 @@ public:
     std::vector<Fill> submit(Order& order);
     CancelResult cancel(OrderId id);
 
+    // Auction phase control
+    void set_phase(Phase phase) noexcept { phase_ = phase; }
+    [[nodiscard]] Phase phase() const noexcept { return phase_; }
+
+    // Uncross: find equilibrium price and execute at single price, then switch to Continuous
+    std::vector<Fill> uncross();
+
     [[nodiscard]] const OrderBook& book() const noexcept { return book_; }
     [[nodiscard]] size_t stop_order_count() const noexcept { return stop_orders_.size(); }
     [[nodiscard]] size_t pegged_order_count() const noexcept { return pegged_orders_.size(); }
@@ -36,9 +43,13 @@ private:
     // FOK pre-check: how much liquidity is available at order's price or better
     [[nodiscard]] Quantity available_quantity(const Order& order) const noexcept;
 
+    // PreOpen: just add to book without matching
+    void add_to_book_no_match(Order& order);
+
     OrderBook book_;
     std::vector<Order> stop_orders_;   // Dormant stop orders awaiting trigger
     std::vector<Order> pegged_orders_; // Pegged orders tracking best bid/ask
+    Phase phase_ = Phase::Continuous;  // Default to continuous trading
     Timestamp current_ts_ = 0;
     Price last_trade_price_ = 0;       // Most recent trade price
 };
