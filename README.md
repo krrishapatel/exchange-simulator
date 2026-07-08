@@ -120,10 +120,42 @@ exchange-simulator/
 
 ```bash
 pip install ".[rl]"
+
+# Basic PPO training
 PYTHONPATH=build/bindings:. python3 rl/train_ppo.py --timesteps 100000
+
+# Self-play training (league-style opponent pool)
+PYTHONPATH=build/bindings:. python3 rl/self_play.py --timesteps 500000 --pool-size 10
+
+# Evaluate a trained model
+PYTHONPATH=build/bindings:. python3 rl/evaluate.py --model models/ppo_trader.zip --episodes 100
 ```
 
-Models save to `models/ppo_trader.zip`. TensorBoard logs to `logs/`.
+Models save to `models/`. TensorBoard logs to `logs/`.
+
+## Data Replay & Backtesting
+
+```bash
+# Replay Lobster L3 data through the engine
+PYTHONPATH=build/bindings:. python3 -c "
+from data import LobsterReplay, run_backtest
+from agents import MarketMakerAgent
+replay = LobsterReplay('path/to/lobster.csv')
+result = run_backtest(replay, [MarketMakerAgent(0)], max_events=10000)
+print(result.summary())
+"
+```
+
+Supports Lobster L3 and Databento MBO formats.
+
+## Multi-Asset
+
+```python
+import exchange_simulator as ex
+engine = ex.MultiAssetEngine()
+engine.submit(1, buy_order)   # Symbol 1
+engine.submit(2, sell_order)  # Symbol 2 (isolated book)
+```
 
 ## Status
 
@@ -136,12 +168,16 @@ Models save to `models/ppo_trader.zip`. TensorBoard logs to `logs/`.
 - [x] Agent framework (classical strategies)
 - [x] Avellaneda-Stoikov market maker
 - [x] Gymnasium RL environment
+- [x] Self-play RL training (league-style)
 - [x] Synthetic data generator (Hawkes process)
+- [x] Real data replay (Lobster/Databento)
+- [x] Backtesting harness
 - [x] Live dashboard (WebSocket + React)
-- [ ] Deep RL self-play training
-- [ ] Real data replay (Lobster/Databento)
-- [ ] Latency histogram dashboard panel
-- [ ] Multi-asset support
+- [x] Latency histogram panel
+- [x] Multi-asset matching engine
+- [ ] Deep RL self-play convergence analysis
+- [ ] FIX protocol gateway
+- [ ] Order book imbalance features for ML
 
 ## License
 
