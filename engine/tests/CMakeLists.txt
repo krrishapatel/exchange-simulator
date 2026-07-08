@@ -5,6 +5,7 @@ add_executable(engine_tests
     test_order_book.cpp
     test_matching_engine.cpp
     test_ioc_fok.cpp
+    test_iceberg.cpp
 )
 target_link_libraries(engine_tests PRIVATE engine GTest::gtest_main)
 include(GoogleTest)

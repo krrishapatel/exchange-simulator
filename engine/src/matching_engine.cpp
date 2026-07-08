@@ -33,7 +33,12 @@ std::vector<Fill> MatchingEngine::match_limit(Order& order) {
 
     // Rest remaining quantity on the book (GTC orders only)
     if (order.remaining() > 0 && order.tif == TimeInForce::GTC) {
-        book_.add(order);
+        if (order.is_iceberg()) {
+            // For iceberg orders resting on the book, split into visible slice + hidden
+            add_iceberg_to_book(order);
+        } else {
+            book_.add(order);
+        }
     }
     // IOC/FOK: remaining quantity is discarded (no rest on book)
     return fills;
@@ -75,8 +80,21 @@ std::vector<Fill> MatchingEngine::match_against_book(Order& order) {
                 maker.filled_quantity += fill_qty;
 
                 if (maker.is_filled()) {
+                    // Check for iceberg refill before cancelling
+                    Order refill_order{};
+                    bool needs_refill = (maker.hidden_quantity > 0);
+                    if (needs_refill) {
+                        refill_order = make_iceberg_refill(maker);
+                    }
+
                     book_.cancel(maker.id);
-                    // Re-fetch best after cancel (pointer may be invalidated)
+
+                    // Refill iceberg: add new visible slice to back of queue
+                    if (needs_refill) {
+                        add_iceberg_to_book(refill_order);
+                    }
+
+                    // Re-fetch best after cancel/refill (pointer may be invalidated)
                     best = book_.best_ask();
                     if (!best) break;
                 }
@@ -109,8 +127,21 @@ std::vector<Fill> MatchingEngine::match_against_book(Order& order) {
                 maker.filled_quantity += fill_qty;
 
                 if (maker.is_filled()) {
+                    // Check for iceberg refill before cancelling
+                    Order refill_order{};
+                    bool needs_refill = (maker.hidden_quantity > 0);
+                    if (needs_refill) {
+                        refill_order = make_iceberg_refill(maker);
+                    }
+
                     book_.cancel(maker.id);
-                    // Re-fetch best after cancel (pointer may be invalidated)
+
+                    // Refill iceberg: add new visible slice to back of queue
+                    if (needs_refill) {
+                        add_iceberg_to_book(refill_order);
+                    }
+
+                    // Re-fetch best after cancel/refill (pointer may be invalidated)
                     best = book_.best_bid();
                     if (!best) break;
                 }
@@ -119,6 +150,38 @@ std::vector<Fill> MatchingEngine::match_against_book(Order& order) {
     }
 
     return fills;
+}
+
+void MatchingEngine::add_iceberg_to_book(Order& order) {
+    // Only show the visible slice on the book
+    Quantity total_remaining = order.remaining();
+    Quantity visible_slice = std::min(order.visible_quantity, total_remaining);
+    Quantity hidden = total_remaining - visible_slice;
+
+    Order book_order = order;
+    book_order.quantity = visible_slice;
+    book_order.filled_quantity = 0;
+    book_order.hidden_quantity = hidden;
+    book_order.timestamp = current_ts_++;  // New timestamp for queue priority
+
+    book_.add(book_order);
+}
+
+Order MatchingEngine::make_iceberg_refill(const Order& filled_maker) {
+    // Create a new order representing the next visible slice of the iceberg
+    Order refill{};
+    refill.id = filled_maker.id;  // Same order ID
+    refill.side = filled_maker.side;
+    refill.price = filled_maker.price;
+    refill.type = filled_maker.type;
+    refill.tif = filled_maker.tif;
+    refill.visible_quantity = filled_maker.visible_quantity;
+    // The total remaining is the hidden_quantity
+    refill.quantity = filled_maker.hidden_quantity;
+    refill.filled_quantity = 0;
+    refill.hidden_quantity = 0;  // Will be recalculated in add_iceberg_to_book
+    refill.timestamp = current_ts_;
+    return refill;
 }
 
 Quantity MatchingEngine::available_quantity(const Order& order) const noexcept {

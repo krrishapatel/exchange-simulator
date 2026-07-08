@@ -29,6 +29,8 @@ struct alignas(64) Order {
     Price price;
     Quantity quantity;
     Quantity filled_quantity;
+    Quantity visible_quantity;  // For iceberg: slice size shown on book. 0 = not an iceberg.
+    Quantity hidden_quantity;   // For iceberg: remaining quantity behind the visible slice.
     Side side;
     OrderType type;
     TimeInForce tif;
@@ -40,6 +42,10 @@ struct alignas(64) Order {
 
     [[nodiscard]] bool is_filled() const noexcept {
         return filled_quantity >= quantity;
+    }
+
+    [[nodiscard]] bool is_iceberg() const noexcept {
+        return visible_quantity > 0;
     }
 };
 

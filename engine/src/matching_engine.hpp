@@ -21,6 +21,10 @@ private:
     std::vector<Fill> match_market(Order& order);
     std::vector<Fill> match_against_book(Order& order);
 
+    // Iceberg support
+    void add_iceberg_to_book(Order& order);
+    Order make_iceberg_refill(const Order& filled_maker);
+
     // FOK pre-check: how much liquidity is available at order's price or better
     [[nodiscard]] Quantity available_quantity(const Order& order) const noexcept;
 
