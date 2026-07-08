@@ -18,6 +18,7 @@ enum class OrderType : uint8_t {
     Market = 1,
     Stop = 2,       // Becomes market when stop_price triggered
     StopLimit = 3,  // Becomes limit when stop_price triggered (future)
+    Pegged = 4,     // Tracks best bid/ask with an offset, reprices automatically
 };
 
 enum class TimeInForce : uint8_t {
@@ -30,6 +31,7 @@ struct alignas(64) Order {
     OrderId id;
     Price price;
     Price stop_price;           // Trigger price for stop orders (0 = not a stop)
+    Price peg_offset;           // For pegged orders: offset from reference price (positive = away from mid)
     Quantity quantity;
     Quantity filled_quantity;
     Quantity visible_quantity;  // For iceberg: slice size shown on book. 0 = not an iceberg.

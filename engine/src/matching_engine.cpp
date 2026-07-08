@@ -13,6 +13,7 @@ std::vector<Fill> MatchingEngine::submit(Order& order) {
             if (!fills.empty()) {
                 last_trade_price_ = fills.back().price;
                 check_stop_triggers(last_trade_price_, fills);
+                reprice_pegged_orders(fills);
             }
             return fills;
         }
@@ -21,6 +22,7 @@ std::vector<Fill> MatchingEngine::submit(Order& order) {
             if (!fills.empty()) {
                 last_trade_price_ = fills.back().price;
                 check_stop_triggers(last_trade_price_, fills);
+                reprice_pegged_orders(fills);
             }
             return fills;
         }
@@ -29,6 +31,44 @@ std::vector<Fill> MatchingEngine::submit(Order& order) {
             // Stop orders don't match immediately; store them dormant
             stop_orders_.push_back(order);
             return {};
+        case OrderType::Pegged: {
+            // Calculate initial price based on current best bid/ask + offset
+            Price ref_price = 0;
+            if (order.side == Side::Buy) {
+                const auto* best = book_.best_bid();
+                if (!best) {
+                    // No reference price available; reject the order
+                    return {};
+                }
+                ref_price = best->price - order.peg_offset;
+                // Cap: pegged buy cannot cross the spread
+                const auto* ask = book_.best_ask();
+                if (ask && ref_price >= ask->price) {
+                    ref_price = ask->price - 1;
+                }
+            } else {
+                const auto* best = book_.best_ask();
+                if (!best) {
+                    // No reference price available; reject the order
+                    return {};
+                }
+                ref_price = best->price + order.peg_offset;
+                // Cap: pegged sell cannot cross the spread
+                const auto* bid = book_.best_bid();
+                if (bid && ref_price <= bid->price) {
+                    ref_price = bid->price + 1;
+                }
+            }
+            // Store the pegged order metadata for repricing
+            pegged_orders_.push_back(order);
+            // Place as a limit order on the book
+            Order limit_order = order;
+            limit_order.price = ref_price;
+            limit_order.type = OrderType::Limit;
+            limit_order.tif = TimeInForce::GTC;
+            book_.add(limit_order);
+            return {};
+        }
     }
     return {};
 }
@@ -217,6 +257,58 @@ Quantity MatchingEngine::available_quantity(const Order& order) const noexcept {
         }
     }
     return available;
+}
+
+void MatchingEngine::reprice_pegged_orders(std::vector<Fill>& fills) {
+    if (pegged_orders_.empty()) return;
+
+    for (auto it = pegged_orders_.begin(); it != pegged_orders_.end(); ) {
+        // Cancel the existing limit order from the book
+        book_.cancel(it->id);
+
+        // Calculate new price
+        Price new_price = 0;
+        bool has_reference = false;
+
+        if (it->side == Side::Buy) {
+            const auto* best = book_.best_bid();
+            if (best) {
+                has_reference = true;
+                new_price = best->price - it->peg_offset;
+                // Cap: cannot cross spread
+                const auto* ask = book_.best_ask();
+                if (ask && new_price >= ask->price) {
+                    new_price = ask->price - 1;
+                }
+            }
+        } else {
+            const auto* best = book_.best_ask();
+            if (best) {
+                has_reference = true;
+                new_price = best->price + it->peg_offset;
+                // Cap: cannot cross spread
+                const auto* bid = book_.best_bid();
+                if (bid && new_price <= bid->price) {
+                    new_price = bid->price + 1;
+                }
+            }
+        }
+
+        if (!has_reference) {
+            // No reference price; keep pegged order dormant (don't place on book)
+            ++it;
+            continue;
+        }
+
+        // Re-add to book at new price
+        Order limit_order = *it;
+        limit_order.price = new_price;
+        limit_order.type = OrderType::Limit;
+        limit_order.tif = TimeInForce::GTC;
+        limit_order.timestamp = current_ts_;
+        book_.add(limit_order);
+        ++it;
+    }
 }
 
 void MatchingEngine::check_stop_triggers(Price last_trade_price, std::vector<Fill>& fills) {
