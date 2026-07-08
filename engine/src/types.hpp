@@ -16,6 +16,8 @@ enum class Side : uint8_t { Buy = 0, Sell = 1 };
 enum class OrderType : uint8_t {
     Limit = 0,
     Market = 1,
+    Stop = 2,       // Becomes market when stop_price triggered
+    StopLimit = 3,  // Becomes limit when stop_price triggered (future)
 };
 
 enum class TimeInForce : uint8_t {
@@ -27,6 +29,7 @@ enum class TimeInForce : uint8_t {
 struct alignas(64) Order {
     OrderId id;
     Price price;
+    Price stop_price;           // Trigger price for stop orders (0 = not a stop)
     Quantity quantity;
     Quantity filled_quantity;
     Quantity visible_quantity;  // For iceberg: slice size shown on book. 0 = not an iceberg.

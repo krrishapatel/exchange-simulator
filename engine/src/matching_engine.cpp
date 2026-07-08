@@ -8,10 +8,27 @@ std::vector<Fill> MatchingEngine::submit(Order& order) {
     current_ts_ = order.timestamp;
 
     switch (order.type) {
-        case OrderType::Limit:
-            return match_limit(order);
-        case OrderType::Market:
-            return match_market(order);
+        case OrderType::Limit: {
+            auto fills = match_limit(order);
+            if (!fills.empty()) {
+                last_trade_price_ = fills.back().price;
+                check_stop_triggers(last_trade_price_, fills);
+            }
+            return fills;
+        }
+        case OrderType::Market: {
+            auto fills = match_market(order);
+            if (!fills.empty()) {
+                last_trade_price_ = fills.back().price;
+                check_stop_triggers(last_trade_price_, fills);
+            }
+            return fills;
+        }
+        case OrderType::Stop:
+        case OrderType::StopLimit:
+            // Stop orders don't match immediately; store them dormant
+            stop_orders_.push_back(order);
+            return {};
     }
     return {};
 }
@@ -200,6 +217,46 @@ Quantity MatchingEngine::available_quantity(const Order& order) const noexcept {
         }
     }
     return available;
+}
+
+void MatchingEngine::check_stop_triggers(Price last_trade_price, std::vector<Fill>& fills) {
+    // Iterate and trigger stops. Handle cascading: a triggered stop may produce
+    // fills that trigger additional stops, so we loop until no more triggers fire.
+    bool triggered_any = true;
+    while (triggered_any) {
+        triggered_any = false;
+        for (auto it = stop_orders_.begin(); it != stop_orders_.end(); ) {
+            bool should_trigger = false;
+
+            if (it->side == Side::Buy) {
+                // Stop buy triggers when last trade price >= stop_price (market rising)
+                should_trigger = (last_trade_price >= it->stop_price);
+            } else {
+                // Stop sell triggers when last trade price <= stop_price (market falling)
+                should_trigger = (last_trade_price <= it->stop_price);
+            }
+
+            if (should_trigger) {
+                // Convert to market order and submit
+                Order triggered = *it;
+                triggered.type = OrderType::Market;
+                triggered.price = 0;
+                triggered.stop_price = 0;
+                it = stop_orders_.erase(it);
+
+                auto new_fills = match_market(triggered);
+                if (!new_fills.empty()) {
+                    last_trade_price = new_fills.back().price;
+                    last_trade_price_ = last_trade_price;
+                    fills.insert(fills.end(), new_fills.begin(), new_fills.end());
+                    triggered_any = true;  // Restart scan for cascading triggers
+                    break;  // Restart the for-loop since vector was modified
+                }
+            } else {
+                ++it;
+            }
+        }
+    }
 }
 
 } // namespace exsim
