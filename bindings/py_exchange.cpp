@@ -2,6 +2,7 @@
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include "matching_engine.hpp"
+#include "multi_asset_engine.hpp"
 
 namespace py = pybind11;
 using namespace exsim;
@@ -90,4 +91,12 @@ PYBIND11_MODULE(exchange_simulator, m) {
         .def("book", &MatchingEngine::book, py::return_value_policy::reference_internal)
         .def("stop_order_count", &MatchingEngine::stop_order_count)
         .def("pegged_order_count", &MatchingEngine::pegged_order_count);
+
+    // MultiAssetEngine
+    py::class_<MultiAssetEngine>(m, "MultiAssetEngine")
+        .def(py::init<>())
+        .def("get_book", &MultiAssetEngine::get_book, py::return_value_policy::reference_internal)
+        .def("submit", &MultiAssetEngine::submit, py::arg("symbol_id"), py::arg("order"))
+        .def("cancel", &MultiAssetEngine::cancel, py::arg("order_id"))
+        .def("symbols", &MultiAssetEngine::symbols);
 }
