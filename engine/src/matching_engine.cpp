@@ -21,12 +21,21 @@ CancelResult MatchingEngine::cancel(OrderId id) {
 }
 
 std::vector<Fill> MatchingEngine::match_limit(Order& order) {
+    // FOK: reject entirely if full quantity is not available
+    if (order.tif == TimeInForce::FOK) {
+        Quantity available = available_quantity(order);
+        if (available < order.quantity) {
+            return {};
+        }
+    }
+
     auto fills = match_against_book(order);
 
     // Rest remaining quantity on the book (GTC orders only)
     if (order.remaining() > 0 && order.tif == TimeInForce::GTC) {
         book_.add(order);
     }
+    // IOC/FOK: remaining quantity is discarded (no rest on book)
     return fills;
 }
 
@@ -110,6 +119,24 @@ std::vector<Fill> MatchingEngine::match_against_book(Order& order) {
     }
 
     return fills;
+}
+
+Quantity MatchingEngine::available_quantity(const Order& order) const noexcept {
+    Quantity available = 0;
+    if (order.side == Side::Buy) {
+        for (auto it = book_.asks_begin(); it != book_.asks_end(); ++it) {
+            if (order.type == OrderType::Limit && it->first > order.price) break;
+            available += it->second.total_quantity;
+            if (available >= order.quantity) return available;
+        }
+    } else {
+        for (auto it = book_.bids_begin(); it != book_.bids_end(); ++it) {
+            if (order.type == OrderType::Limit && it->first < order.price) break;
+            available += it->second.total_quantity;
+            if (available >= order.quantity) return available;
+        }
+    }
+    return available;
 }
 
 } // namespace exsim

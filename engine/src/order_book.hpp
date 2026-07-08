@@ -40,6 +40,15 @@ public:
     [[nodiscard]] size_t bid_depth() const noexcept;
     [[nodiscard]] size_t ask_depth() const noexcept;
 
+    // Const iterators for liquidity scanning (FOK pre-check)
+    using BidsMap = std::map<Price, PriceLevel, std::greater<Price>>;
+    using AsksMap = std::map<Price, PriceLevel, std::less<Price>>;
+
+    [[nodiscard]] BidsMap::const_iterator bids_begin() const noexcept { return bids_.cbegin(); }
+    [[nodiscard]] BidsMap::const_iterator bids_end() const noexcept { return bids_.cend(); }
+    [[nodiscard]] AsksMap::const_iterator asks_begin() const noexcept { return asks_.cbegin(); }
+    [[nodiscard]] AsksMap::const_iterator asks_end() const noexcept { return asks_.cend(); }
+
 private:
     // Bids: highest price first (reverse order)
     std::map<Price, PriceLevel, std::greater<Price>> bids_;

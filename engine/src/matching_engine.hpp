@@ -21,6 +21,9 @@ private:
     std::vector<Fill> match_market(Order& order);
     std::vector<Fill> match_against_book(Order& order);
 
+    // FOK pre-check: how much liquidity is available at order's price or better
+    [[nodiscard]] Quantity available_quantity(const Order& order) const noexcept;
+
     OrderBook book_;
     Timestamp current_ts_ = 0;
 };
