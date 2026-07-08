@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react'
 import OrderBook from './components/OrderBook'
 import TradeFeed from './components/TradeFeed'
 import AgentPanel from './components/AgentPanel'
+import LatencyPanel from './components/LatencyPanel'
 import PriceChart from './components/PriceChart'
 import Stats from './components/Stats'
 
@@ -11,6 +12,7 @@ export default function App() {
   const [agents, setAgents] = useState([])
   const [fills, setFills] = useState([])
   const [priceHistory, setPriceHistory] = useState([])
+  const [latency, setLatency] = useState(null)
   const [step, setStep] = useState(0)
   const wsRef = useRef(null)
 
@@ -41,6 +43,10 @@ export default function App() {
             const next = [...prev, { time: data.step, value: data.book.mid / 10000 }]
             return next.slice(-500)
           })
+        }
+
+        if (data.latency) {
+          setLatency(data.latency)
         }
       }
     }
@@ -90,6 +96,8 @@ export default function App() {
       </div>
 
       <AgentPanel agents={agents} />
+
+      <LatencyPanel latency={latency} />
     </div>
   )
 }

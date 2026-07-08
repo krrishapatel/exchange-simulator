@@ -1,6 +1,7 @@
 """WebSocket server that streams live exchange data to the dashboard."""
 
 import asyncio
+import collections
 import json
 import sys
 import os
@@ -35,6 +36,30 @@ class LiveExchange:
         self.recent_fills: list[dict] = []
         self.order_to_agent: dict[int, object] = {}
         self.running = False
+        # Latency tracking: ring buffer of last 1000 submit latencies (nanoseconds)
+        self.latency_samples: collections.deque = collections.deque(maxlen=1000)
+
+    def _compute_latency_stats(self) -> dict | None:
+        """Compute latency histogram summary from recent samples."""
+        if not self.latency_samples:
+            return None
+        samples = sorted(self.latency_samples)
+        n = len(samples)
+
+        def percentile(p: float) -> int:
+            idx = int(p / 100.0 * (n - 1))
+            return samples[idx]
+
+        return {
+            "p50": percentile(50),
+            "p90": percentile(90),
+            "p95": percentile(95),
+            "p99": percentile(99),
+            "mean": int(sum(samples) / n),
+            "min": samples[0],
+            "max": samples[-1],
+            "count": n,
+        }
 
     def tick(self) -> dict:
         """Execute one simulation step and return state snapshot."""
@@ -47,7 +72,10 @@ class LiveExchange:
             orders = agent.on_market_data(self.engine, timestamp)
             for order in orders:
                 self.order_to_agent[order.id] = agent
+                t0 = time.perf_counter_ns()
                 fills = self.engine.submit(order)
+                t1 = time.perf_counter_ns()
+                self.latency_samples.append(t1 - t0)
                 for fill in fills:
                     fill_dict = {
                         "price": fill.price,
@@ -71,7 +99,7 @@ class LiveExchange:
         best_bid = book.best_bid_price()
         best_ask = book.best_ask_price()
 
-        return {
+        msg = {
             "type": "tick",
             "step": self.step_count,
             "book": {
@@ -93,6 +121,14 @@ class LiveExchange:
                 for a in self.agents
             ],
         }
+
+        # Broadcast latency histogram every 100 ticks
+        if self.step_count % 100 == 0:
+            latency_stats = self._compute_latency_stats()
+            if latency_stats:
+                msg["latency"] = latency_stats
+
+        return msg
 
 
 exchange = LiveExchange()
