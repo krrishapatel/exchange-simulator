@@ -1,6 +1,7 @@
 # engine/CMakeLists.txt
-add_library(engine INTERFACE)
-target_include_directories(engine INTERFACE src)
+add_library(engine src/order_book.cpp)
+target_include_directories(engine PUBLIC src)
+set_target_properties(engine PROPERTIES CXX_STANDARD 20)
 
 include(FetchContent)
 
