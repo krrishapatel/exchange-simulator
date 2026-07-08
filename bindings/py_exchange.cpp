@@ -67,7 +67,17 @@ PYBIND11_MODULE(exchange_simulator, m) {
     py::class_<OrderBook>(m, "OrderBook")
         .def("bid_depth", &OrderBook::bid_depth)
         .def("ask_depth", &OrderBook::ask_depth)
-        .def("spread", &OrderBook::spread);
+        .def("spread", &OrderBook::spread)
+        .def("best_bid_price", [](const OrderBook& book) -> py::object {
+            auto* level = book.best_bid();
+            if (!level) return py::none();
+            return py::cast(level->price);
+        })
+        .def("best_ask_price", [](const OrderBook& book) -> py::object {
+            auto* level = book.best_ask();
+            if (!level) return py::none();
+            return py::cast(level->price);
+        });
 
     // MatchingEngine
     py::class_<MatchingEngine>(m, "MatchingEngine")
